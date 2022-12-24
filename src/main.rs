@@ -1,8 +1,9 @@
+use axum::extract::Path;
 use select::document::Document;
 use select::predicate::{Attr, Name};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct Wiki {
     title: String,
     url_ending: String,
@@ -27,10 +28,12 @@ impl Cache {
     }
 }
 
-fn make_query(target: &str) -> Wiki {
-    let resp_txt = reqwest::blocking::get(format!("https://en.wikipedia.org/wiki/{}", target))
+async fn make_query(target: &str) -> Wiki {
+    let resp_txt = reqwest::get(format!("https://en.wikipedia.org/wiki/{}", target))
+        .await
         .unwrap()
         .text()
+        .await
         .unwrap();
 
     let wiki_page = Document::from(resp_txt.as_str());
@@ -65,14 +68,32 @@ fn make_query(target: &str) -> Wiki {
         links,
     };
 }
-// TODO: add rocket framework
-fn main() {
-    let mut cache = Cache {
-        articles: HashMap::new(),
-        article_count: HashMap::new(),
-    };
-    let wiki = make_query("a");
 
-    cache.add(wiki);
-    println!("wiki = {:#?}", &cache);
+use axum::{
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Json, Router,
+};
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+
+#[tokio::main]
+async fn main() {
+    // initialize tracing
+
+    // build our application with a route
+    let app = Router::new().route("/article/:target", get(get_article));
+
+    // run our app with hyper
+    // `axum::Server` is a re-export of `hyper::Server`
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
+
+async fn get_article(Path(target): Path<String>) -> impl IntoResponse {
+    (StatusCode::CREATED, Json(make_query(&target).await))
 }
