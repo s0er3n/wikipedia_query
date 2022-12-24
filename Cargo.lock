@@ -2095,12 +2095,14 @@ name = "wikipedia_query"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "http",
  "reqwest",
  "rocket",
  "select",
  "serde",
  "serde_json",
  "tokio",
+ "tower-http",
 ]
 
 [[package]]

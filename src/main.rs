@@ -1,5 +1,7 @@
 use axum::extract::Path;
-use axum::extract::State;
+
+use http::Method;
+use tower_http::cors::{Any, CorsLayer};
 
 use select::document::Document;
 use select::predicate::{Attr, Name};
@@ -35,7 +37,6 @@ impl Cache {
             .or_insert(1);
     }
 }
-
 async fn make_query(target: &str) -> Wiki {
     let resp_txt = reqwest::get(format!("https://en.wikipedia.org/wiki/{}", target))
         .await
@@ -93,6 +94,11 @@ async fn main() {
         article_count: Mutex::new(HashMap::new()),
     });
 
+    let cors = CorsLayer::new()
+        // allow `GET` and `POST` when accessing the resource
+        .allow_methods([Method::GET, Method::POST])
+        // allow requests from any origin
+        .allow_origin(Any);
     // build our application with a route
     let app = Router::new()
         .route(
@@ -102,7 +108,8 @@ async fn main() {
                 move |path| get_article(path, cache)
             }),
         )
-        .with_state(cache);
+        .with_state(cache)
+        .layer(cors);
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`

@@ -13,3 +13,5 @@ select = "*"
 rocket = "0.5.0-rc.2"
 axum = "0.6.1"
 tokio = "1.23.0"
+tower-http = {version="*", features =["cors"]}
+http = "*"
