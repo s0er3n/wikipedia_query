@@ -1,9 +1,12 @@
 use axum::extract::Path;
+use axum::extract::State;
+
 use select::document::Document;
 use select::predicate::{Attr, Name};
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct Wiki {
     title: String,
     url_ending: String,
@@ -13,15 +16,20 @@ struct Wiki {
 
 #[derive(Debug)]
 struct Cache {
-    articles: HashMap<String, Wiki>,
-    article_count: HashMap<String, usize>,
+    articles: Mutex<HashMap<String, Wiki>>,
+    article_count: Mutex<HashMap<String, usize>>,
 }
 
 impl Cache {
-    fn add(&mut self, wiki: Wiki) {
+    fn add(&self, wiki: Wiki) {
         let url_ending = wiki.url_ending.clone();
-        self.articles.insert(url_ending.clone(), wiki);
+        self.articles
+            .lock()
+            .unwrap()
+            .insert(url_ending.clone(), wiki);
         self.article_count
+            .lock()
+            .unwrap()
             .entry(url_ending)
             .and_modify(|e| *e += 1)
             .or_insert(1);
@@ -80,10 +88,21 @@ use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() {
-    // initialize tracing
+    let cache = Arc::new(Cache {
+        articles: Mutex::new(HashMap::new()),
+        article_count: Mutex::new(HashMap::new()),
+    });
 
     // build our application with a route
-    let app = Router::new().route("/article/:target", get(get_article));
+    let app = Router::new()
+        .route(
+            "/article/:target",
+            get({
+                let cache = Arc::clone(&cache);
+                move |path| get_article(path, cache)
+            }),
+        )
+        .with_state(cache);
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
@@ -94,6 +113,21 @@ async fn main() {
         .unwrap();
 }
 
-async fn get_article(Path(target): Path<String>) -> impl IntoResponse {
-    (StatusCode::CREATED, Json(make_query(&target).await))
+async fn get_article(Path(target): Path<String>, cache: Arc<Cache>) -> impl IntoResponse {
+    let cache = cache;
+    if cache.articles.lock().unwrap().contains_key(&target) {
+        let wiki = cache.articles.lock().unwrap().get(&target).unwrap().clone();
+        cache
+            .article_count
+            .lock()
+            .unwrap()
+            .entry(target)
+            .and_modify(|e| *e += 1)
+            .or_insert(1);
+        return (StatusCode::CREATED, Json(wiki));
+    } else {
+        let wiki = make_query(&target).await;
+        cache.add(wiki.clone());
+        return (StatusCode::CREATED, Json(wiki));
+    }
 }
